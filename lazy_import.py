@@ -4,7 +4,7 @@
 # lazy_import --- https://github.com/mnmelo/lazy_import
 # Copyright (c) 2017 Manuel Nuno Melo
 #
-# Released under the GNU Public Licence, v3 or any higher version
+# Released under the GNU Public Licence, v3 or any higher version.
 #
 # This module was based on code from the importing module from the PEAK
 # package (see http://peak.telecommunity.com/DevCenter/FrontPage). The PEAK
@@ -16,13 +16,15 @@
 #  Code quality varies between modules, from "beta" to "experimental
 #  pre-alpha".  :)
 #
-# The following list summarizes the modifications to the importing code:
-#  - a replacement of lazyModule (import_module, which defers most work to
-#    _import_module) is implemented that uses an alternative LazyModule class;
-#  - a different LazyModule class is created per instance, so that reverting
-#    the __getattribute__ behavior can be done safely;
-#  - a function to lazily import module functions was added.
-
+# The following list summarizes the modifications to the PEAK importing code:
+#  - the code is now Python 3 compatible (at least versions 3.4 through 3.6).
+#  - a replacement of lazyModule (lazy_module, which defers most work to
+#    _lazy_module) was implemented that uses a modified LazyModule class;
+#  - a different LazyModule class is now created per instance, so that
+#    reverting the __getattribute__ behavior can be done safely;
+#  - a function to lazily import module callables was added;
+#  - customization is fully supported, either as passable custom error messages
+#    or as passable LazyModule subclass alternatives.
 
 """
 Lazy module loading
@@ -36,12 +38,12 @@ Heavily borrowed from the `importing`_ module.
 Files and directories
 ---------------------
 
-.. autofunction:: import_module
-.. autofunction:: import_function
+.. autofunction:: module
+.. autofunction:: callable
 
 """
 
-__all__ = ['import_module', 'import_function']
+__all__ = ['lazy_module', 'lazy_callable', 'lazy_function', 'lazy_class']
 
 from types import ModuleType
 import sys
@@ -52,9 +54,20 @@ try:
 except ImportError:
     from _imp import acquire_lock, release_lock 
 
+# Adding a __spec__ doesn't really help. I'll leave the code here in case
+# future python implementations start relying on it.
+#try:
+#    from importlib.machinery import ModuleSpec
+#except ImportError:
+#    ModuleSpec = None
+
 import six
+from six import raise_from
 from six.moves import reload_module
 
+_DEBUG = False
+if _DEBUG:
+    import traceback
 
 ################################
 # Module/function registration #
@@ -72,68 +85,85 @@ class LazyModule(ModuleType):
     """
     # peak.util.imports sets __slots__ to (), but it seems pointless because
     # the base ModuleType doesn't itself set __slots__.
-    def __init__(self, modname):
-        super(ModuleType, self).__setattr__('__name__', modname)
-
     def __getattribute__(self, attr):
+        if _DEBUG:
+            sys.stderr.write("Getting attr {} of LazyModule instance of {}\n"
+                    .format(attr, super(LazyModule, self).
+                        __getattribute__("__name__")))
+            #traceback.print_stack()
         # IPython tries to be too clever and constantly inspects, asking for
         #  modules' attrs, which causes premature module loading and unesthetic
-        #  internal errors if the lazily-loaded module doesn't exist. Returning
-        #  Nones seems to satisfy those needs:
-        #caller_base = module_basename(_caller_name())
-        #if (attr in ('__spec__', '__path__') or
-        #    (run_from_ipython() and caller_base in ('inspect', 'IPython'))):
-        #    return None
-        try:
-            modclass = type(self)
-            return modclass._lazy_import_funcs[attr]
-        except (AttributeError, KeyError):
-            _load_module(self)
-        return ModuleType.__getattribute__(self, attr)
+        #  internal errors if the lazily-loaded module doesn't exist.
+        if (run_from_ipython()
+            and (attr.startswith(("__", "_ipython"))
+                 or attr == "_repr_mimebundle_")
+            and module_basename(_caller_name()) in ('inspect', 'IPython')):
+                raise AttributeError
+        if not attr in ('__name__','__class__'):
+            # If it's an already-loaded submodule, we return it without
+            # triggering a full loading
+            try:
+                return sys.modules[self.__name__+"."+attr]
+            except KeyError:
+                pass
+            # Check if it's one of the lazy callables
+            try:
+                return type(self)._lazy_import_callables[attr]
+            except (AttributeError, KeyError):
+                _load_module(self)
+        return super(LazyModule, self).__getattribute__(attr)
 
     def __setattr__(self, attr, value):
+        if _DEBUG:
+            sys.stderr.write("Setting attr {} to value {}, "
+                             "in LazyModule instance of {}\n"
+                             .format(attr, value, super(LazyModule, self).
+                             __getattribute__("__name__")))
         _load_module(self)
-        return ModuleType.__setattr__(self, attr, value)
+        return super(LazyModule, self).__setattr__(attr, value)
 
 
-class LazyFunction(object):
-    """Class for lazily-loaded functions that triggers module loading on access
+class LazyCallable(object):
+    """Class for lazily-loaded callables that triggers module loading on access
 
     """
-    def __init__(self, module, funcname):
+    def __init__(self, module, cname):
         self.module = module
         self.modclass = type(self.module)
-        self.funcname = funcname
-        self.fn = None
+        self.cname = cname
+        self.callable = None
+        # Need to save these, since the module-loading gets rid of them
+        self.error_msgs = self.modclass._lazy_import_error_msgs
+        self.error_strings = self.modclass._lazy_import_error_strings
 
     def __call__(self, *args, **kwargs):
         # No need to go through all the reloading more than once.
-        if self.fn:
-            return self.fn(*args, **kwargs)
+        if self.callable:
+            return self.callable(*args, **kwargs)
         try:
-            del self.modclass._lazy_import_funcs[self.funcname]
+            del self.modclass._lazy_import_callables[self.cname]
         except (AttributeError, KeyError):
             pass
         try:
-            self.fn = getattr(self.module, self.funcname)
+            self.callable = getattr(self.module, self.cname)
         except AttributeError:
-            msg = modclass._lazy_import_error_msgs['msg_fn']
-            raise AttributeError(msg.format(
-                                 **self.modclass._lazy_import_error_strings))
-        except ImportError:
+            msg = self.error_msgs['msg_callable']
+            raise_from(AttributeError(
+                msg.format(**self.error_strings, callable=self.cname)), None)
+        except ImportError as err:
             # Import failed. We reset the dict and re-raise the ImportError.
             try:
-                self.modclass._lazy_import_funcs[self.funcname] = self
+                self.modclass._lazy_import_callables[self.cname] = self
             except AttributeError:
-                self.modclass._lazy_import_funcs = {self.funcname: self}
-            raise
+                self.modclass._lazy_import_callables = {self.cname: self}
+            raise_from(err, None)
         else:
-            return self.fn(*args, **kwargs)
+            return self.callable(*args, **kwargs)
 
 
 ### Functions ###
 
-def import_module(modname, error_strings=None, lazy_class=LazyModule,
+def lazy_module(modname, error_strings=None, lazy_mod_class=LazyModule,
                   level='leaf'):
     """Function allowing lazy importing of a module into the namespace.
 
@@ -142,7 +172,7 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
     not found, are delayed until an attempt is made to access attributes of the
     lazy module.
 
-    A handy application is to use :func:`import_module` early in your own code
+    A handy application is to use :func:`lazy_module` early in your own code
     (say, in `__init__.py`) to register all modulenames you want to be lazy.
     Because of registration in `sys.modules` later invocations of
     `import modulename` will also return the lazy object. This means that after
@@ -156,12 +186,12 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
     error_strings : dict, optional
          A dictionary of strings to use when module-loading fails. Key 'msg'
          sets the message to use (defaults to :attr:`lazy_import._MSG`). The
-         message is formatted using the remaining dictionary keys: the default
+         message is formatted using the remaining dictionary keys. The default
          message informs the user of which module is missing (key 'module'),
          what code loaded the module as lazy (key 'caller'), and which package
          should be installed to solve the dependency (key 'install_name').
          None of the keys is mandatory and all are given smart names by default.
-    lazy_class: type, optional
+    lazy_mod_class: type, optional
          Which class to use when instantiating the lazy module, to allow
          deep customization. The default is :class:`LazyModule` and custom
          alternatives **must** be a subclass thereof.
@@ -169,12 +199,12 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
          Which submodule reference to return. Either a reference to the 'leaf'
          module (the default) or to the 'base' module. This is useful if you'll
          be using the module functionality in the same place you're calling
-         :func:`import_module` from, since then you don't need to run `import`
+         :func:`lazy_module` from, since then you don't need to run `import`
          again. Setting *level* does not affect which names/modules get
          registered in `sys.modules`.
          For *level* set to 'base' and *modulename* 'aaa.bbb.ccc'::
 
-            aaa = import_module("aaa.bbb.ccc", level='base')
+            aaa = lazy_import.lazy_module("aaa.bbb.ccc", level='base')
             # 'aaa' becomes defined in the current namespace, with
             #  (sub)attributes 'aaa.bbb' and 'aaa.bbb.ccc'.
             # It's the lazy equivalent to:
@@ -182,7 +212,7 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
 
         For *level* set to 'leaf'::
 
-            ccc = import_module("aaa.bbb.ccc", level='leaf')
+            ccc = lazy_import.lazy_module("aaa.bbb.ccc", level='leaf')
             # Only 'ccc' becomes set in the current namespace.
             # Lazy equivalent to:
             from aaa.bbb import ccc
@@ -192,12 +222,35 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
     module
         The module specified by *modname*, or its base, depending on *level*.
         The module isn't immediately imported. Instead, an instance of
-        *lazy_class* is returned. Upon access to any of its attributes, the
+        *lazy_mod_class* is returned. Upon access to any of its attributes, the
         module is finally loaded.
+
+    Examples
+    --------
+    >>> import lazy_import, sys
+    >>> np = lazy_import.lazy_module("numpy")
+    >>> np
+    Lazily-loaded module numpy
+    >>> np is sys.modules['numpy']
+    True
+    >>> np.pi # This causes the full loading of the module ...
+    3.141592653589793
+    >>> np # ... and the module is changed in place. 
+    <module 'numpy' from '/usr/local/lib/python/site-packages/numpy/__init__.py'>
+
+    >>> import lazy_import, sys
+    >>> # The following succeeds even when asking for a module that's not available
+    >>> missing = lazy_import.lazy_module("missing_module")
+    >>> missing
+    Lazily-loaded module missing_module
+    >>> missing is sys.modules['missing_module']
+    True
+    >>> missing.some_attr # This causes the full loading of the module, which now fails.
+    ImportError: __main__ attempted to use a functionality that requires module missing_module, but it couldn't be loaded. Please install missing_module and retry.
 
     See Also
     --------
-    :func:`import_function`
+    :func:`lazy_callable`
     :class:`LazyModule`
 
     """
@@ -205,7 +258,7 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
         error_strings = {}
     _set_default_errornames(modname, error_strings)
 
-    mod = _import_module(modname, error_strings, lazy_class)
+    mod = _lazy_module(modname, error_strings, lazy_mod_class)
     if level == 'base':
         return sys.modules[module_basename(modname)]
     elif level == 'leaf':
@@ -214,7 +267,7 @@ def import_module(modname, error_strings=None, lazy_class=LazyModule,
         raise ValueError("Parameter 'level' must be one of ('base', 'leaf')")
 
 
-def _import_module(modname, error_strings, lazy_class):
+def _lazy_module(modname, error_strings, lazy_mod_class):
     acquire_lock()
     try:
         fullmodname = modname
@@ -229,15 +282,28 @@ def _import_module(modname, error_strings, lazy_class):
                 modname = ''
             except KeyError:
                 err_s = error_strings.copy()
-                class _LazyModule(lazy_class):
+                err_s.setdefault('module', modname)
+
+                class _LazyModule(lazy_mod_class):
                     _lazy_import_error_msgs = {'msg': err_s.pop('msg')}
                     try:
-                        _lazy_import_error_msgs['msg_fn'] = err_s.pop('msg_fn')
+                        _lazy_import_error_msgs['msg_callable'] = \
+                                err_s.pop('msg_callable')
                     except KeyError:
                         pass
                     _lazy_import_error_strings = err_s
-                    _lazy_import_funcs = {}
+                    _lazy_import_callables = {}
+
+                    def __repr__(self):
+                        return "Lazily-loaded module {}".format(self.__name__)
+                # A bit of cosmetic, to make AttributeErrors read more natural  
+                _LazyModule.__name__ = 'module'
+                # Actual module instantiation
                 mod = sys.modules[modname] = _LazyModule(modname)
+                # No need for __spec__. Maybe in the future.
+                #if ModuleSpec:
+                #    ModuleType.__setattr__(mod, '__spec__',
+                #            ModuleSpec(modname, None))
             if fullsubmodname:
                 ModuleType.__setattr__(mod, submodname,
                                        sys.modules[fullsubmodname])
@@ -248,79 +314,119 @@ def _import_module(modname, error_strings, lazy_class):
         release_lock()
 
 
-def import_function(modname, *funcnames, **kwargs):
-    """Performs lazy importing of one or more functions into the namespace.
+def lazy_callable(modname, *names, **kwargs):
+    """Performs lazy importing of one or more callables.
+
+    :func:`lazy_callable` creates functions that are thin wrappers that pass
+    any and all arguments straight to the target module's callables. These can
+    be functions or classes. The full loading of that module is only actually
+    triggered when the returned lazy function itself is called. This lazy
+    import of the target module uses the same mechanism as
+    :func:`lazy_module`.
+    
+    If, however, the target module has already been fully imported prior
+    to invocation of :func:`lazy_callable`, then the target callables
+    themselves are returned and no lazy imports are made.
+
+    :func:`lazy_function` and :func:`lazy_function` are aliases of
+    :func:`lazy_callable`.
 
     Parameters
     ----------
     modname : str
-         The base module from where to import the function(s) in *funcnames*,
-         or a full 'module_name.function_name' string.
-    funcnames : str (optional)
-         The function name(s) to import from the module specified by *modname*.
-         If left empty, *modname* is assumed to also include the function name
+         The base module from where to import the callable(s) in *names*,
+         or a full 'module_name.callable_name' string.
+    names : str (optional)
+         The callable name(s) to import from the module specified by *modname*.
+         If left empty, *modname* is assumed to also include the callable name
          to import.
     error_strings : dict, optional
          A dictionary of strings to use when reporting loading errors (either a
-         missing module, or a missing function name in the loaded module).
+         missing module, or a missing callable name in the loaded module).
          *error_string* follows the same usage as described under
-         :func:`import_module`, with the exceptions that 1) a further key,
-         'msg_fn', can be supplied to be used as the error when a module is
-         successfully loaded but the target function can't be found therein
-         (defaulting to :attr:`lazy_import._MSG_FN`); 2) a key 'function' is
-         always added with the function name being loaded.
-    lazy_class : type, optional
-         See definition under :func:`import_module`.
-    lazy_fn_class : type, optional
-         Analogously to *lazy_class*, allows setting a custom class to handle
-         lazy functions, other than the default :class:`LazyFunction`.
+         :func:`lazy_module`, with the exceptions that 1) a further key,
+         'msg_callable', can be supplied to be used as the error when a module
+         is successfully loaded but the target callable can't be found therein
+         (defaulting to :attr:`lazy_import._MSG_CALLABLE`); 2) a key 'callable'
+         is always added with the callable name being loaded.
+    lazy_mod_class : type, optional
+         See definition under :func:`lazy_module`.
+    lazy_call_class : type, optional
+         Analogously to *lazy_mod_class*, allows setting a custom class to
+         handle lazy callables, other than the default :class:`LazyCallable`.
 
     Returns
     -------
-    function or list of functions
-        If *funcnames* is passed, returns a list of imported functions, one for
-        each element in *funcnames*.
+    wrapper function or tuple of wrapper functions
+        If *names* is passed, returns a tuple of wrapper functions, one for
+        each element in *names*.
         If only *modname* is passed it is assumed to be a full
-        'module_name.function_name' string, in which case the imported function
-        is returned directly, and not in a list.
-        The module specified by *modname* is always imported lazily, via the
-        same mechanism as :func:`import_module`.
+        'module_name.callable_name' string, in which case the wrapper for the
+        imported callable is returned directly, and not in a tuple.
         
+    Notes
+    -----
+    Unlike :func:`lazy_module`, which returns a lazy module that eventually
+    mutates into the fully-functional version, :func:`lazy_callable` only
+    returns thin wrappers that never change. This means that the returned
+    wrapper object never truly becomes the one under the module's namespace,
+    even after successful loading of the module in *modname*. This is fine for
+    most practical use cases, but may break code that relies on the usage of
+    the returned objects oter than calling them. One such example is the lazy
+    import of a class: it's fine to use the returned wrapper to instantiate an
+    object, but it can't be used, for instance, to subclass from.
+
+    Examples
+    --------
+    >>> import lazy_import, sys
+    >>> fn = lazy_import.lazy_callable("numpy.arange")
+    >>> sys.modules['numpy']
+    Lazily-loaded module numpy
+    >>> fn(10)
+    array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    >>> sys.modules['numpy']
+    <module 'numpy' from '/usr/local/lib/python3.5/site-packages/numpy/__init__.py'>
+
+    >>> import lazy_import, sys
+    >>> cls = lazy_import.lazy_callable("numpy.ndarray") # a class
+    >>> class MyArray(cls): # FAIL!
+    >>>     pass
+
     See Also
     --------
-    :func:`import_module`
-    :class:`LazyFunction`
+    :func:`lazy_module`
+    :class:`LazyCallable`
     :class:`LazyModule`
 
     """
-    if not funcnames:
-        modname, _, funcname = modname.rpartition(".")
-    lazy_class = _setdef(kwargs, 'lazy_class', LazyModule)
-    lazy_fn_class = _setdef(kwargs, 'lazy_fn_class', LazyFunction)
+    if not names:
+        modname, _, name = modname.rpartition(".")
+    lazy_mod_class = _setdef(kwargs, 'lazy_mod_class', LazyModule)
+    lazy_call_class = _setdef(kwargs, 'lazy_call_class', LazyCallable)
     error_strings = _setdef(kwargs, 'error_strings', {})
-    _set_default_errornames(modname, error_strings, fn=True)
+    _set_default_errornames(modname, error_strings, call=True)
 
-    if not funcnames:
-        # We allow passing a single string as 'modname.funcname',
-        # in which case the function is returned directly and not as a list.
-        return _import_function(modname, funcname, error_strings.copy(),
-                                lazy_class, lazy_fn_class)
-    return [_import_function(modname, fn, error_strings.copy(),
-                             lazy_class, lazy_fn_class) for fn in funcnames]
+    if not names:
+        # We allow passing a single string as 'modname.callable_name',
+        # in which case the wrapper is returned directly and not as a list.
+        return _lazy_callable(modname, name, error_strings.copy(),
+                                lazy_mod_class, lazy_call_class)
+    return tuple(_lazy_callable(modname, cname, error_strings.copy(),
+                        lazy_mod_class, lazy_call_class) for cname in names)
 
+lazy_function = lazy_class = lazy_callable
 
-def _import_function(modname, funcname, error_strings,
-                     lazy_class, lazy_fn_class):
-    # We could do most of this in the LazyFunction __init__, but here we can
+def _lazy_callable(modname, cname, error_strings,
+                     lazy_mod_class, lazy_call_class):
+    # We could do most of this in the LazyCallable __init__, but here we can
     # pre-check whether to actually be lazy or not.
-    error_strings['function'] = funcname
-    module = _import_module(modname, error_strings, lazy_class)
+    module = _lazy_module(modname, error_strings, lazy_mod_class)
     modclass = type(module)
     if (issubclass(modclass, LazyModule) and
-        hasattr(modclass, '_lazy_import_funcs')):
-        modclass._lazy_import_funcs.setdefault(
-            funcname, lazy_fn_class(module, funcname))
-    return getattr(module, funcname)
+        hasattr(modclass, '_lazy_import_callables')):
+        modclass._lazy_import_callables.setdefault(
+            cname, lazy_call_class(module, cname))
+    return getattr(module, cname)
 
 
 #######################
@@ -356,24 +462,26 @@ def _load_module(module):
             reload_module(module)           
         except:
             # Loading failed. We reset our lazy state.
+            if _DEBUG:
+                sys.stderr.write("**InExcept!\n")
             _reset_lazymodule(modclass, cached_data)
             raise
     except (AttributeError, ImportError) as err:
+        if _DEBUG:
+            sys.stderr.write("**InOuterExcept!\n")
+            print(err)
+            #traceback.print_stack()
         # Under Python 3 reloading our dummy LazyModule instances causes an
         # AttributeError if the module can't be found. Would be preferrable if
         # we could always rely on an ImportError. As it is we vet the
         # AttributeError as thoroughly as possible.
-        if not (six.PY3 and isinstance(err, AttributeError) and
+        if ((six.PY3 and isinstance(err, AttributeError)) and not
                  err.args[0] == "'NoneType' object has no attribute 'name'"):
             # Not the AttributeError we were looking for.
             raise
         msg = modclass._lazy_import_error_msgs['msg']
-        # Way to silence context tracebacks in Python3 but with a syntax
-        # compatible with Python2. This would normally be:
-        #  raise ImportError(...) from None
-        exc = ImportError(msg.format(**modclass._lazy_import_error_strings))
-        exc.__suppress_context__ = True
-        raise exc
+        raise_from(ImportError(
+            msg.format(**modclass._lazy_import_error_strings)), None)
     finally:
         release_lock()
 
@@ -386,19 +494,19 @@ _MSG = ("{caller} attempted to use a functionality that requires module "
         "{module}, but it couldn't be loaded. Please install {install_name} "
         "and retry.")
 
-_MSG_FN = ("{caller} attempted to use a functionality that requires function "
-           "{function} of module {module}, but it couldn't be found in that "
+_MSG_CALLABLE = ("{caller} attempted to use a functionality that requires "
+           "{callable}, of module {module}, but it couldn't be found in that "
            "module. Please install a version of {install_name} that has "
-           "{module}.{function} and retry.")
+           "{module}.{callable} and retry.")
 
 _CLS_ATTRS = ("_lazy_import_error_strings", "_lazy_import_error_msgs",
-              "_lazy_import_funcs")
+              "_lazy_import_callables", "__repr__")
 
 def _setdef(argdict, name, defaultvalue):
     """Like dict.setdefault but sets the default value also if None is present.
 
     """
-    if not name in argdict or argdict['name'] is None:
+    if not name in argdict or argdict[name] is None:
         argdict[name] = defaultvalue
     return argdict[name]
 
@@ -407,13 +515,14 @@ def module_basename(modname):
     return modname.partition('.')[0]
 
 
-def _set_default_errornames(modname, error_strings, fn=False):
-    error_strings.setdefault('module', modname)
+def _set_default_errornames(modname, error_strings, call=False):
+    # We don't set the modulename default here because it will change for
+    # parents of lazily imported submodules.
     error_strings.setdefault('caller', _caller_name(3, default='Python'))
     error_strings.setdefault('install_name', module_basename(modname))
     error_strings.setdefault('msg', _MSG)
-    if fn:
-        error_strings.setdefault('msg_fn', _MSG_FN)
+    if call:
+        error_strings.setdefault('msg_callable', _MSG_CALLABLE)
 
 
 def _caller_name(depth=2, default=''):
