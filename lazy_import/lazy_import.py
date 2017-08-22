@@ -43,7 +43,9 @@ Files and directories
 
 """
 
-__all__ = ['lazy_module', 'lazy_callable', 'lazy_function', 'lazy_class']
+__all__ = ['lazy_module', 'lazy_callable', 'lazy_function', 'lazy_class',
+           'LazyModule', 'LazyCallable', 'module_basename', '_MSG',
+           '_MSG_CALLABLE']
 
 from types import ModuleType
 import sys
@@ -149,7 +151,7 @@ class LazyCallable(object):
         except AttributeError:
             msg = self.error_msgs['msg_callable']
             raise_from(AttributeError(
-                msg.format(**self.error_strings, callable=self.cname)), None)
+                msg.format(callable=self.cname, **self.error_strings)), None)
         except ImportError as err:
             # Import failed. We reset the dict and re-raise the ImportError.
             try:
