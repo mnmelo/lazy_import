@@ -2,13 +2,13 @@
 
 from setuptools import setup, find_packages
 
-with open('README.md') as infile:
+with open('README.rst') as infile:
     readme = infile.read()
 
 with open('lazy_import/VERSION') as infile:
     version = infile.read().strip()
 
-tests_require = ['pytest', 'pytest-xdist', 'six']
+tests_require = ['pytest', 'pytest-xdist']
 
 setup(name='lazy_import',
       version=version,
@@ -38,7 +38,7 @@ setup(name='lazy_import',
                    'Operating System :: OS Independent',
                    ],
       packages=find_packages(),
-      install_requires=[],
+      install_requires=['six'],
       test_suite='lazy_import.test_lazy',
       tests_require=tests_require,
       extras_require={'test': tests_require},

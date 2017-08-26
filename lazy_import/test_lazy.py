@@ -2,9 +2,23 @@
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
 #
 # Testing for lazy_import --- https://github.com/mnmelo/lazy_import
-# Copyright (c) 2017 Manuel Nuno Melo
+# Copyright (C) 2017 Manuel Nuno Melo
 #
-# Released under the GNU Public Licence, v3 or any higher version
+# This file is part of lazy_import.
+#
+#  lazy_import is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  lazy_import is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with lazy_import.  If not, see <http://www.gnu.org/licenses/>.
+#
 
 import pytest
 import importlib
@@ -18,13 +32,26 @@ random.seed(42) # For consistency when parallel-testing
 
 import lazy_import
 
+# Shortcut to allow direct testing from within python
+
+def run(np=None):
+    if np is None:
+        import multiprocessing
+        np = multiprocessing.cpu_count()
+    import os
+    path = os.path.dirname(__file__)
+    if np > 1:
+        pytest.main(['-n', str(np), '--boxed', path])
+    else:
+        pytest.main(['--boxed', path])
 ###############################################################################
 # Constants and util functions
 
 RANDOM_PREFIX = "_lazy_test_"
 RANDOM_ALPHABET = string.ascii_letters + string.digits
-def random_str(size=6):
-    return ''.join(random.choice(RANDOM_ALPHABET) for _ in range(size))
+def random_str(size=5):
+    # We make it start with a letter
+    return "m" + ''.join(random.choice(RANDOM_ALPHABET) for _ in range(size))
 
 def random_modname(submodules=0):
     while True:
