@@ -10,6 +10,9 @@ at use-time. This is useful when using optional dependencies with heavy loading
 times and/or footprints, since that cost is only paid if the module is actually
 used.
 
+For minimal impact to other code running in the same session ``lazy_import``
+functionality is implemented without the use of import hooks.
+
 ``lazy_import`` is compatible with Python ≥ 2.7 or ≥ 3.4.
 
 Example: lazy module loading
@@ -76,9 +79,12 @@ Submodules work too:
     # Alternatively the returned reference can be made to point to the
     # base module:
     some = lazy_import.lazy_module("some.sub.module", level="base")
+
     # This is equivalent to "import some.sub.module" in that only the base
     # module's name is added to the namespace. All submodules must be accessed
     # via that:
+
+    some.sub # Returns lazy module 'some.sub' without triggering full loading.
     some.sub.attr # Triggers full loading of the 'some' and 'some.sub' modules.
     some.sub.module.function() # Triggers loading also of 'some.sub.module'.
 
@@ -86,7 +92,7 @@ Submodules work too:
 Example: lazy callable loading
 ------------------------------
 
-To emulate the `from some.module import function` syntax ``lazy_module``
+To emulate the ``from some.module import function`` syntax ``lazy_module``
 provides ``lazy_callable``. It returns a wrapper function. Only upon being
 called will it trigger the loading of the target module and the calling of the
 target callable (function, class, etc.).
@@ -96,6 +102,7 @@ target callable (function, class, etc.).
     import lazy_import
     fn = lazy_import.lazy_callable("numpy.arange")
     # 'numpy' is now in sys.modules and is 'Lazily-loaded module numpy'
+
     fn(10)
     # array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 
@@ -105,7 +112,9 @@ target callable (function, class, etc.).
 
     import lazy_import
     cl = lazy_import.lazy_callable("numpy.ndarray") # a class
+
     obj = cl([1, 2]) # This works OK (and also triggers the loading of numpy)
+
     class MySubclass(cl): # This fails because cls is just a wrapper,
         pass              #  not an actual class.
 
@@ -158,7 +167,7 @@ License
 
 ``lazy_import`` is released under GPL v3. It was based on code from the
 |importing|_ module from the PEAK_ package. The licenses for both
-``lazy_import`` and the PEAK package are included in the LICENSE file. The
+``lazy_import`` and the PEAK package are included in the ``LICENSE`` file. The
 respective license notices are reproduced here:
 
   lazy_import — a module to allow lazy importing of python modules

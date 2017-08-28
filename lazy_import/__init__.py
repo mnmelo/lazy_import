@@ -60,11 +60,18 @@ __all__ = ['lazy_module', 'lazy_callable', 'lazy_function', 'lazy_class',
 from types import ModuleType
 import sys
 try:
-    # imp is deprecated since python 3.4 but there's no clear alternative to
-    # the lock mechanism, other than to import directly from _imp.
-    from imp import acquire_lock, release_lock 
+    from importlib._bootstrap import _ImportLockContext
 except ImportError:
-    from _imp import acquire_lock, release_lock 
+    # Python 2 doesn't have the context manager. Roll it ourselves (copied from
+    # Python 3's importlib/_bootstrap.py)
+    import imp
+    class _ImportLockContext:
+        """Context manager for the import lock."""
+        def __enter__(self):
+            imp.acquire_lock()
+        def __exit__(self, exc_type, exc_value, exc_traceback):
+            imp.release_lock()
+
 
 # Adding a __spec__ doesn't really help. I'll leave the code here in case
 # future python implementations start relying on it.
@@ -86,7 +93,7 @@ VERSION_FILE = os.path.join(os.path.dirname(__file__), 'VERSION')
 with open(VERSION_FILE) as infile:
     __version__ = infile.read().strip()
 
-_DEBUG = True
+_DEBUG = False
 if _DEBUG:
     import traceback
 
@@ -289,8 +296,7 @@ def lazy_module(modname, error_strings=None, lazy_mod_class=LazyModule,
 
 
 def _lazy_module(modname, error_strings, lazy_mod_class):
-    acquire_lock()
-    try:
+    with _ImportLockContext():
         fullmodname = modname
         fullsubmodname = None
         # ensure parent module/package is in sys.modules
@@ -334,8 +340,6 @@ def _lazy_module(modname, error_strings, lazy_mod_class):
             fullsubmodname = modname
             modname, _, submodname = modname.rpartition('.')
         return sys.modules[fullmodname]
-    finally:
-        release_lock()
 
 
 def lazy_callable(modname, *names, **kwargs):
@@ -466,8 +470,7 @@ def _load_module(module):
     # We only take care of our own LazyModule instances
     if not issubclass(modclass, LazyModule):
         raise TypeError("Passed module is not a LazyModule instance.")
-    acquire_lock()
-    try:
+    with _ImportLockContext():
         parent, _, modname = module.__name__.rpartition('.')
         if _DEBUG:
             sys.stderr.write("loading module {}\n".format(modname))
@@ -480,55 +483,54 @@ def _load_module(module):
         # First, ensure the parent is loaded (using recursion; *very* unlikely
         # we'll ever hit a stack limit in this case).
         modclass._LOADING = True
-        if parent:
-            if _DEBUG:
-                sys.stderr.write("first loading parent module {}\n"
-                    .format(parent))
-            _load_module(sys.modules[parent])
-            setattr(sys.modules[parent], modname, module)
-        if not hasattr(modclass, '_LOADING'):
-            if _DEBUG:
-                sys.stderr.write("Module {} loaded by the parent\n"
-                    .format(modname))
-            # We've been loaded by the parent. Let's bail.
-            return
-        cached_data = _clean_lazymodule(module)
         try:
-            # Get Python to do the real import!
-            reload_module(module)           
-        except:
-            # Loading failed. We reset our lazy state.
-            if _DEBUG:
-                sys.stderr.write("Failed to load module {}. Resetting...\n"
+            if parent:
+                if _DEBUG:
+                    sys.stderr.write("first loading parent module {}\n"
+                        .format(parent))
+                _load_module(sys.modules[parent])
+                setattr(sys.modules[parent], modname, module)
+            if not hasattr(modclass, '_LOADING'):
+                if _DEBUG:
+                    sys.stderr.write("Module {} loaded by the parent\n"
                         .format(modname))
-            _reset_lazymodule(module, cached_data)
-            raise
-        else:
-            # Successful load
-            if _DEBUG:
-                sys.stderr.write("Successfully loaded module {}\n"
-                        .format(modname))
-            delattr(modclass, '_LOADING')
-            _reset_lazy_submod_refs(module)
+                # We've been loaded by the parent. Let's bail.
+                return
+            cached_data = _clean_lazymodule(module)
+            try:
+                # Get Python to do the real import!
+                reload_module(module)           
+            except:
+                # Loading failed. We reset our lazy state.
+                if _DEBUG:
+                    sys.stderr.write("Failed to load module {}. Resetting...\n"
+                            .format(modname))
+                _reset_lazymodule(module, cached_data)
+                raise
+            else:
+                # Successful load
+                if _DEBUG:
+                    sys.stderr.write("Successfully loaded module {}\n"
+                            .format(modname))
+                delattr(modclass, '_LOADING')
+                _reset_lazy_submod_refs(module)
 
-    except (AttributeError, ImportError) as err:
-        if _DEBUG:
-            sys.stderr.write("Failed to load {}.\n".format(modname))
-            sys.stderr.write(str(err) + "\n")
-            #traceback.print_stack()
-        # Under Python 3 reloading our dummy LazyModule instances causes an
-        # AttributeError if the module can't be found. Would be preferrable if
-        # we could always rely on an ImportError. As it is we vet the
-        # AttributeError as thoroughly as possible.
-        if ((six.PY3 and isinstance(err, AttributeError)) and not
-                 err.args[0] == "'NoneType' object has no attribute 'name'"):
-            # Not the AttributeError we were looking for.
-            raise
-        msg = modclass._lazy_import_error_msgs['msg']
-        raise_from(ImportError(
-            msg.format(**modclass._lazy_import_error_strings)), None)
-    finally:
-        release_lock()
+        except (AttributeError, ImportError) as err:
+            if _DEBUG:
+                sys.stderr.write("Failed to load {}.\n".format(modname))
+                sys.stderr.write(str(err) + "\n")
+                #traceback.print_stack()
+            # Under Python 3 reloading our dummy LazyModule instances causes an
+            # AttributeError if the module can't be found. Would be preferrable
+            # if we could always rely on an ImportError. As it is we vet the
+            # AttributeError as thoroughly as possible.
+            if ((six.PY3 and isinstance(err, AttributeError)) and not
+                err.args[0] == "'NoneType' object has no attribute 'name'"):
+                # Not the AttributeError we were looking for.
+                raise
+            msg = modclass._lazy_import_error_msgs['msg']
+            raise_from(ImportError(
+                msg.format(**modclass._lazy_import_error_strings)), None)
 
 
 ##############################
