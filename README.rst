@@ -172,7 +172,7 @@ respective license notices are reproduced here:
 
   lazy_import — a module to allow lazy importing of python modules
 
-  Copyright (C) 2017 Manuel Nuno Melo 
+  Copyright (C) 2017-2018 Manuel Nuno Melo 
 
   lazy_import is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -204,7 +204,7 @@ functionality (lazy importing of callable objects).
 
 
 .. |Build Status| image:: https://api.travis-ci.org/mnmelo/lazy_import.svg
-   :target: https://github.com/mnmelo/lazy_import
+   :target: https://travis-ci.org/mnmelo/lazy_import
 
 .. |importing| replace:: ``importing``
 .. |pytest| replace:: ``pytest``

@@ -2,7 +2,7 @@
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
 #
 # lazy_import --- https://github.com/mnmelo/lazy_import
-# Copyright (C) 2017 Manuel Nuno Melo
+# Copyright (C) 2017-2018 Manuel Nuno Melo
 #
 # This file is part of lazy_import.
 #

@@ -18,6 +18,7 @@ setup(name='lazy_import',
       author='Manuel Nuno Melo',
       author_email='manuel.nuno.melo@gmail.com',
       license='GPL',
+      platforms = ["any"],
       classifiers=['Development Status :: 4 - Beta',
                    # Indicate who your project is intended for
                    'Intended Audience :: Developers',

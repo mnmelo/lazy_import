@@ -1,3 +1,9 @@
+17/01/2018    v0.2
+ - stabilized a python 3 bug when importing modules using 'import modulename'
+   syntax.
+ - added a test shortcut.
+ - published to PyPi (yay!)
+
 25/08/2017    v0.1 
  - along with python 2.7, the code is now Python 3 compatible
    (at least versions 3.4 through 3.6).

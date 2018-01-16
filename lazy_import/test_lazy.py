@@ -2,7 +2,7 @@
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
 #
 # Testing for lazy_import --- https://github.com/mnmelo/lazy_import
-# Copyright (C) 2017 Manuel Nuno Melo
+# Copyright (C) 2017-2018 Manuel Nuno Melo
 #
 # This file is part of lazy_import.
 #
@@ -67,7 +67,7 @@ class _TestLazyModule(lazy_import.LazyModule):
 
 _GENERATED_NAMES = []
 # Modules not usually loaded on startup
-NAMES_EXISTING = ("concurrent", "distutils.core")
+NAMES_EXISTING = ("sched", "distutils.core")
 
 LEVELS = ("leaf", "base")
 CLASSES = (_TestLazyModule, lazy_import.LazyModule)
@@ -115,8 +115,8 @@ def _check_lazy_loading(modname):
     # Can only test that for the module names we know of
     # (meaning, no random ones)
     if modname in NAMES_EXISTING:
-        if modname == 'concurrent':
-            import concurrent as newmod
+        if modname == 'sched':
+            import sched as newmod
         elif modname == 'distutils.core':
             import distutils.core as newmod
         assert str(newmod) == "Lazily-loaded module " + modname
