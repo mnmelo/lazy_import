@@ -93,9 +93,15 @@ VERSION_FILE = os.path.join(os.path.dirname(__file__), 'VERSION')
 with open(VERSION_FILE) as infile:
     __version__ = infile.read().strip()
 
+# Logging
+import logging
 _DEBUG = False
 if _DEBUG:
     import traceback
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 ################################
 # Module/function registration #
@@ -114,11 +120,10 @@ class LazyModule(ModuleType):
     # peak.util.imports sets __slots__ to (), but it seems pointless because
     # the base ModuleType doesn't itself set __slots__.
     def __getattribute__(self, attr):
-        if _DEBUG:
-            sys.stderr.write("Getting attr {} of LazyModule instance of {}\n"
-                    .format(attr, super(LazyModule, self).
-                        __getattribute__("__name__")))
-            #traceback.print_stack()
+        logger.debug("Getting attr {} of LazyModule instance of {}"
+                     .format(attr, super(LazyModule, self)
+                             .__getattribute__("__name__")))
+        #traceback.print_stack()
         # IPython tries to be too clever and constantly inspects, asking for
         #  modules' attrs, which causes premature module loading and unesthetic
         #  internal errors if the lazily-loaded module doesn't exist.
@@ -127,7 +132,12 @@ class LazyModule(ModuleType):
                  or attr == "_repr_mimebundle_")
             and module_basename(_caller_name()) in ('inspect', 'IPython')):
                 raise AttributeError
-        if not attr in ('__name__','__class__'):
+        if not attr in ('__name__','__class__','__spec__'):
+            # __name__ and __class__ yield their values from the LazyModule;
+            # __spec__ causes an AttributeError. Maybe in the future it will be
+            # necessary to return an actual ModuleSpec object, but it works as
+            # it is without that now.
+
             # If it's an already-loaded submodule, we return it without
             # triggering a full loading
             try:
@@ -137,16 +147,19 @@ class LazyModule(ModuleType):
             # Check if it's one of the lazy callables
             try:
                 return type(self)._lazy_import_callables[attr]
-            except (AttributeError, KeyError):
+            except (AttributeError, KeyError) as err:
+                logger.debug("Proceeding to load module {}, "
+                             "from requested value {}"
+                             .format(super(LazyModule, self)
+                                     .__getattribute__("__name__"), attr))
+                #traceback.print_stack()
                 _load_module(self)
         return super(LazyModule, self).__getattribute__(attr)
 
     def __setattr__(self, attr, value):
-        if _DEBUG:
-            sys.stderr.write("Setting attr {} to value {}, "
-                             "in LazyModule instance of {}\n"
-                             .format(attr, value, super(LazyModule, self).
-                             __getattribute__("__name__")))
+        logger.debug("Setting attr {} to value {}, in LazyModule instance "
+                     "of {}".format(attr, value, super(LazyModule, self)
+                                    .__getattribute__("__name__")))
         _load_module(self)
         return super(LazyModule, self).__setattr__(attr, value)
 
@@ -472,8 +485,7 @@ def _load_module(module):
         raise TypeError("Passed module is not a LazyModule instance.")
     with _ImportLockContext():
         parent, _, modname = module.__name__.rpartition('.')
-        if _DEBUG:
-            sys.stderr.write("loading module {}\n".format(modname))
+        logger.debug("loading module {}".format(modname))
         # We first identify whether this is a loadable LazyModule, then we
         # strip as much of lazy_import behavior as possible (keeping it cached,
         # in case loading fails and we need to reset the lazy state).
@@ -485,15 +497,11 @@ def _load_module(module):
         modclass._LOADING = True
         try:
             if parent:
-                if _DEBUG:
-                    sys.stderr.write("first loading parent module {}\n"
-                        .format(parent))
-                _load_module(sys.modules[parent])
+                logger.debug("first loading parent module {}".format(parent))
                 setattr(sys.modules[parent], modname, module)
             if not hasattr(modclass, '_LOADING'):
-                if _DEBUG:
-                    sys.stderr.write("Module {} loaded by the parent\n"
-                        .format(modname))
+                logger.debug("Module {} already loaded by the parent"
+                             .format(modname))
                 # We've been loaded by the parent. Let's bail.
                 return
             cached_data = _clean_lazymodule(module)
@@ -502,24 +510,20 @@ def _load_module(module):
                 reload_module(module)           
             except:
                 # Loading failed. We reset our lazy state.
-                if _DEBUG:
-                    sys.stderr.write("Failed to load module {}. Resetting...\n"
-                            .format(modname))
+                logger.debug("Failed to load module {}. Resetting..."
+                             .format(modname))
                 _reset_lazymodule(module, cached_data)
                 raise
             else:
                 # Successful load
-                if _DEBUG:
-                    sys.stderr.write("Successfully loaded module {}\n"
-                            .format(modname))
+                logger.debug("Successfully loaded module {}".format(modname))
                 delattr(modclass, '_LOADING')
                 _reset_lazy_submod_refs(module)
 
         except (AttributeError, ImportError) as err:
-            if _DEBUG:
-                sys.stderr.write("Failed to load {}.\n".format(modname))
-                sys.stderr.write(str(err) + "\n")
-                #traceback.print_stack()
+            logger.debug("Failed to load {}.\n{}: {}"
+                         .format(modname, err.__class__.__name__, err))
+            #traceback.print_stack()
             # Under Python 3 reloading our dummy LazyModule instances causes an
             # AttributeError if the module can't be found. Would be preferrable
             # if we could always rely on an ImportError. As it is we vet the

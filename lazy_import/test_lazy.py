@@ -67,7 +67,7 @@ class _TestLazyModule(lazy_import.LazyModule):
 
 _GENERATED_NAMES = []
 # Modules not usually loaded on startup
-NAMES_EXISTING = ("uuid", "distutils.core")
+NAMES_EXISTING = ("concurrent", "distutils.core")
 
 LEVELS = ("leaf", "base")
 CLASSES = (_TestLazyModule, lazy_import.LazyModule)
@@ -110,6 +110,17 @@ def _check_lazy_loading(modname):
     base = lazy_import.lazy_module(modname, level="base")
     assert sys.modules[basename] is base
     assert str(base) == "Lazily-loaded module " + basename
+
+    # A subtle bug only rears its head if an actual import statement is done.
+    # Can only test that for the module names we know of
+    # (meaning, no random ones)
+    if modname in NAMES_EXISTING:
+        if modname == 'concurrent':
+            import concurrent as newmod
+        elif modname == 'distutils.core':
+            import distutils.core as newmod
+        assert str(newmod) == "Lazily-loaded module " + modname
+
     # Check that all submodules are in and that submodule access works
     curr_name = basename
     curr_mod = base
