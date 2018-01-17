@@ -124,13 +124,13 @@ Installation
 
 .. code:: bash
 
-    pip install lazy_module
+    pip install lazy_import
 
 Or, to include dependencies needed to run regression tests:
 
 .. code:: bash
 
-    pip install lazy_module[test]
+    pip install lazy_import[test]
 
 Tests
 -----
