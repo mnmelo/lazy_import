@@ -15,26 +15,34 @@ functionality is implemented without the use of import hooks.
 
 ``lazy_import`` is compatible with Python ≥ 2.7 or ≥ 3.4.
 
-Example: lazy module loading
-----------------------------
+Examples: lazy module loading
+-----------------------------
 
 .. code:: python
 
     import lazy_import
     np = lazy_import.lazy_module("numpy")
-    # np is now 'Lazily-loaded module numpy', and is listed in sys.modules
-    # under the 'numpy' key.
+    # np is now available in the namespace and is listed in sys.modules under
+    #  the 'numpy' key:
+    import sys
+    sys.modules['numpy']
+    # The module is present as "Lazily-loaded module numpy"
 
     # Subsequent imports of the same module return the lazy version present in
-    # sys.modules
+    #  sys.modules
     import numpy # At this point numpy and np point to the same lazy module.
     # This is true for any import of 'numpy', even if from other modules!
 
     # Accessing attributes causes the full loading of the module ...
     np.pi
     # ... and the module is changed in place. np and numpy are now 
-    # "<module 'numpy' from '/usr/local/lib/python/site-packages/numpy/__init__.py'>"
+    #  "<module 'numpy' from '/usr/local/lib/python/site-packages/numpy/__init__.py'>"
 
+    # Lazy-importing a module that's already fully loaded returns the full
+    #  module instead (even if the module was loaded elsewhere in the current
+    #  session) because there's no point in being lazy in this case:
+    os = lazy_import.lazy_module("os")
+    # "<module 'os' from '/usr/lib/python/os.py'>"
 
 In the above code it can be seen that issuing
 ``lazy_import.lazy_module("numpy")`` registers the lazy module in the
@@ -74,23 +82,50 @@ Submodules work too:
     import lazy_import
     mod = lazy_import.lazy_module("some.sub.module")
     # mod now points to the some.sub.module lazy module
-    # equivalent to "from some.sub import module as mod"
+    #  equivalent to "from some.sub import module as mod"
 
     # Alternatively the returned reference can be made to point to the
-    # base module:
+    #  base module:
     some = lazy_import.lazy_module("some.sub.module", level="base")
 
     # This is equivalent to "import some.sub.module" in that only the base
-    # module's name is added to the namespace. All submodules must be accessed
-    # via that:
-
+    #  module's name is added to the namespace. All submodules must be accessed
+    #  via that:
     some.sub # Returns lazy module 'some.sub' without triggering full loading.
-    some.sub.attr # Triggers full loading of the 'some' and 'some.sub' modules.
+    some.sub.attr # Triggers full loading of 'some' and 'some.sub'.
     some.sub.module.function() # Triggers loading also of 'some.sub.module'.
 
 
-Example: lazy callable loading
-------------------------------
+Finally, if you want to mark some modules and submodules your package imports
+as always being lazy, it is as simple as lazily importing them at the root
+`__init__.py` level. Other files can then import all modules normally, and
+those that have already been loaded as lazy in `__init__.py` will remain so:
+
+.. code:: python
+
+    # in __init__.py:
+
+    import lazy_import
+    lazy_import.lazy_module("numpy")
+    lazy_import.lazy_module("scipy.stats")
+
+
+    # then, in any other file in the package just use the imports normally:
+
+    import requests # This one is not lazy.
+    import numpy # This one is lazy, as long as no other code caused its
+                 #  loading in the meantime.
+    import scipy # This one is also lazy. It was lazily loaded as part of the
+                 #  lazy loading of scipy.stats.
+    import scipy.stats # Also lazy.
+    import scipy.linalg # Uh-oh, we didn't lazily import the 'linalg' submodule
+                        #  earlier, and importing it like this here will cause
+                        #  both scipy and scipy.linalg (but not scipy.stats) to
+                        #  immediately become fully loaded.
+
+
+Examples: lazy callable loading
+-------------------------------
 
 To emulate the ``from some.module import function`` syntax ``lazy_module``
 provides ``lazy_callable``. It returns a wrapper function. Only upon being
