@@ -28,8 +28,8 @@ Examples: lazy module loading
     sys.modules['numpy']
     # The module is present as "Lazily-loaded module numpy"
 
-    # Subsequent imports of the same module return the lazy version present in
-    #  sys.modules
+    # Subsequent imports of the same module return the lazy version present
+    #  in sys.modules
     import numpy # At this point numpy and np point to the same lazy module.
     # This is true for any import of 'numpy', even if from other modules!
 
@@ -39,8 +39,8 @@ Examples: lazy module loading
     #  "<module 'numpy' from '/usr/local/lib/python/site-packages/numpy/__init__.py'>"
 
     # Lazy-importing a module that's already fully loaded returns the full
-    #  module instead (even if the module was loaded elsewhere in the current
-    #  session) because there's no point in being lazy in this case:
+    #  module instead (even if it was loaded elsewhere in the current session)
+    #  because there's no point in being lazy in this case:
     os = lazy_import.lazy_module("os")
     # "<module 'os' from '/usr/lib/python/os.py'>"
 
@@ -150,7 +150,7 @@ target callable (function, class, etc.).
 
     obj = cl([1, 2]) # This works OK (and also triggers the loading of numpy)
 
-    class MySubclass(cl): # This fails because cls is just a wrapper,
+    class MySubclass(cl): # This fails because cl is just a wrapper,
         pass              #  not an actual class.
 
 
