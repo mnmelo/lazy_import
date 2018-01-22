@@ -66,7 +66,8 @@ class _TestLazyModule(lazy_import.LazyModule):
     pass
 
 _GENERATED_NAMES = []
-# Modules not usually loaded on startup
+# Modules not usually loaded on startup. Must include at least one with
+#  submodule
 NAMES_EXISTING = ("sched", "distutils.core")
 
 LEVELS = ("leaf", "base")
@@ -243,3 +244,17 @@ def test_callable_missing(modname, errors, cnames, fn):
         _check_callable_missing(lazy, msg=expected_err)
     
 
+@pytest.mark.parametrize("modname",
+                [modname for modname in NAMES_EXISTING if '.' in modname])
+def test_load_lazysub_on_fullmodule(modname, lazy_opts):
+    level, modclass, errors = lazy_opts
+    base = modname.split('.')[0]
+    # A fully loaded base...
+    importlib.import_module(base)
+    # and a lazy sub...
+    mod = lazy_import.lazy_module(modname, error_strings=errors,
+                                   lazy_mod_class=modclass, level=level)
+    if level == 'base':
+        assert not isinstance(mod, modclass)
+    else:
+        assert isinstance(mod, modclass)

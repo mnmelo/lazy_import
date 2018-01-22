@@ -348,7 +348,7 @@ def _lazy_module(modname, error_strings, lazy_mod_class):
                 #            ModuleSpec(modname, None))
             if fullsubmodname:
                 submod = sys.modules[fullsubmodname]
-                super(LazyModule, mod).__setattr__(submodname, submod)
+                ModuleType.__setattr__(mod, submodname, submod)
                 _LazyModule._lazy_import_submodules[submodname] = submod
             fullsubmodname = modname
             modname, _, submodname = modname.rpartition('.')

@@ -1,3 +1,5 @@
+22/01/2018    v0.2.2
+ - fixed a serious bug when lazy-loading a submodule of a fully-loaded base.
 17/01/2018    v0.2.1
  - annoying release to fix install notice on PyPi (because README.rst was
    incorrect).
