@@ -1,3 +1,7 @@
+??/??/??      v0.2.3
+ - More informative error when inadvertently trying to use a lazy callable a
+   baseclass (Issue #2).
+ - Extra level of debugging (trace debugging), toggled via lazy_import.logger.
 22/01/2018    v0.2.2
  - fixed a serious bug when lazy-loading a submodule of a fully-loaded base.
 17/01/2018    v0.2.1
