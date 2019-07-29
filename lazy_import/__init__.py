@@ -375,7 +375,9 @@ def _lazy_module(modname, error_strings, lazy_mod_class):
             if fullsubmodname:
                 submod = sys.modules[fullsubmodname]
                 ModuleType.__setattr__(mod, submodname, submod)
-                _LazyModule._lazy_import_submodules[submodname] = submod
+                if issubclass(type(mod), LazyModule):
+                    type(mod)._lazy_import_submodules[submodname] = submod
+
             fullsubmodname = modname
             modname, _, submodname = modname.rpartition('.')
         return sys.modules[fullmodname]
@@ -533,7 +535,7 @@ def _load_module(module):
             cached_data = _clean_lazymodule(module)
             try:
                 # Get Python to do the real import!
-                reload_module(module)           
+                reload_module(module)
             except:
                 # Loading failed. We reset our lazy state.
                 logger.debug("Failed to load module {}. Resetting..."
@@ -544,7 +546,7 @@ def _load_module(module):
                 # Successful load
                 logger.debug("Successfully loaded module {}".format(modname))
                 delattr(modclass, '_LOADING')
-                _reset_lazy_submod_refs(module)
+                _reset_lazy_submod_refs(module, cached_data)
 
         except (AttributeError, ImportError) as err:
             logger.debug("Failed to load {}.\n{}: {}"
@@ -679,17 +681,16 @@ def _reset_lazymodule(module, cls_attrs):
             setattr(modclass, cls_attr, cls_attrs[cls_attr])
         except KeyError:
             pass
-    _reset_lazy_submod_refs(module)
+    _reset_lazy_submod_refs(module, cls_attrs)
 
 
-def _reset_lazy_submod_refs(module):
-    modclass = type(module)
+def _reset_lazy_submod_refs(module, cls_attrs):
     for deldict in _DELETION_DICT:
         try:
-            resetnames = getattr(modclass, deldict)
+            resetnames = cls_attrs[deldict]
         except AttributeError:
             continue
-        for name, submod in resetnames.items(): 
+        for name, submod in resetnames.items():
             super(LazyModule, module).__setattr__(name, submod)
 
 

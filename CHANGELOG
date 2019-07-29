@@ -1,3 +1,9 @@
+29/07/2019    v0.2.4
+ - Ensure that when a package of a lazy-loaded module is loaded, the
+   lazy-loaded module remains an attribute of the newly loaded package.
+ - Ensure that when two lazy-loaded modules exist in the same lazy package,
+   the second (and all subsequent) lazy-modules are also added to the lazy
+   packages list of lazy sub-modules.
 ??/??/??      v0.2.3
  - More informative error when inadvertently trying to use a lazy callable a
    baseclass (Issue #2).
