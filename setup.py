@@ -8,7 +8,7 @@ with open('README.rst') as infile:
 with open('lazy_import/VERSION') as infile:
     version = infile.read().strip()
 
-tests_require = ['pytest', 'pytest-xdist']
+tests_require = ['pytest>=4.4.0', 'pytest-xdist']
 
 setup(name='lazy_import',
       version=version,
