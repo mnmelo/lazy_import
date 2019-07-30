@@ -43,5 +43,6 @@ setup(name='lazy_import',
       test_suite='lazy_import.test_lazy',
       tests_require=tests_require,
       extras_require={'test': tests_require},
-      package_data={'lazy_import': ['VERSION']}
+      package_data={'lazy_import': ['VERSION']},
+      python_requires=">=2.7",
       )
