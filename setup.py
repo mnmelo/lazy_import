@@ -8,17 +8,17 @@ with open('README.rst') as infile:
 with open('lazy_import/VERSION') as infile:
     version = infile.read().strip()
 
-tests_require = ['pytest', 'pytest-xdist']
+tests_require = ['pytest>=4.4.0', 'pytest-xdist']
 
-setup(name='lazy_import',
+setup(name='sloth_import',
       version=version,
       description='A module for lazy loading of Python modules',
       long_description=readme,
-      url='https://github.com/mnmelo/lazy_import',
-      author='Manuel Nuno Melo',
-      author_email='manuel.nuno.melo@gmail.com',
+      url='https://github.com/matthewphsmith/lazy_import',
+      author='Manuel Nuno Melo, Matthew Smith',
+      author_email='matthew_smith@outlook.com',
       license='GPL',
-      platforms = ["any"],
+      platforms=["any"],
       classifiers=['Development Status :: 4 - Beta',
                    # Indicate who your project is intended for
                    'Intended Audience :: Developers',
