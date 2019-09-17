@@ -82,7 +82,7 @@ except ImportError:
 
 import six
 from six import raise_from
-from six.moves import reload_module
+from importlib import import_module
 # It is sometime useful to have access to the version number of a library.
 # This is usually done through the __version__ special attribute.
 # To make sure the version number is consistent between setup.py and the
@@ -127,6 +127,9 @@ class LazyModule(ModuleType):
     # peak.util.imports sets __slots__ to (), but it seems pointless because
     # the base ModuleType doesn't itself set __slots__.
     def __getattribute__(self, attr):
+        if hasattr(type(self), '_loaded_module'):
+            return getattr(type(self)._loaded_module, attr)
+
         logger.debug("Getting attr {} of LazyModule instance of {}"
                      .format(attr, super(LazyModule, self)
                              .__getattribute__("__name__")))
@@ -142,6 +145,7 @@ class LazyModule(ModuleType):
                              "inspection.".format(super(LazyModule, self)
                                      .__getattribute__("__name__"), attr))
                 raise AttributeError
+
         if not attr in ('__name__','__class__','__spec__'):
             # __name__ and __class__ yield their values from the LazyModule;
             # __spec__ causes an AttributeError. Maybe in the future it will be
@@ -170,6 +174,8 @@ class LazyModule(ModuleType):
         return super(LazyModule, self).__getattribute__(attr)
 
     def __setattr__(self, attr, value):
+        if hasattr(type(self), '_loaded_module'):
+            return setattr(type(self)._loaded_module, attr, value)
         logger.debug("Setting attr {} to value {}, in LazyModule instance "
                      "of {}".format(attr, value, super(LazyModule, self)
                                     .__getattribute__("__name__")))
@@ -512,7 +518,8 @@ def _load_module(module):
     if not issubclass(modclass, LazyModule):
         raise TypeError("Passed module is not a LazyModule instance.")
     with _ImportLockContext():
-        parent, _, modname = module.__name__.rpartition('.')
+        full_name = module.__name__
+        parent, _, modname = full_name.rpartition('.')
         logger.debug("loading module {}".format(modname))
         # We first identify whether this is a loadable LazyModule, then we
         # strip as much of lazy_import behavior as possible (keeping it cached,
@@ -533,14 +540,18 @@ def _load_module(module):
                 # We've been loaded by the parent. Let's bail.
                 return
             cached_data = _clean_lazymodule(module)
+            cached_module = sys.modules.pop(full_name)
             try:
                 # Get Python to do the real import!
-                reload_module(module)
+                lazy_loaded_module = import_module(full_name)
+                setattr(modclass, '_loaded_module', lazy_loaded_module)
+                sys.modules[full_name] = module
             except:
                 # Loading failed. We reset our lazy state.
                 logger.debug("Failed to load module {}. Resetting..."
                              .format(modname))
                 _reset_lazymodule(module, cached_data)
+                sys.modules[full_name] = cached_module
                 raise
             else:
                 # Successful load
@@ -637,9 +648,6 @@ def _clean_lazymodule(module):
     """
     modclass = type(module)
     _clean_lazy_submod_refs(module)
-
-    modclass.__getattribute__ = ModuleType.__getattribute__
-    modclass.__setattr__ = ModuleType.__setattr__
     cls_attrs = {}
     for cls_attr in _CLS_ATTRS:
         try:
@@ -670,8 +678,6 @@ def _reset_lazymodule(module, cls_attrs):
 
     """
     modclass = type(module)
-    del modclass.__getattribute__
-    del modclass.__setattr__
     try:
         del modclass._LOADING
     except AttributeError:
