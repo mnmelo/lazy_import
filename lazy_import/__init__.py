@@ -89,25 +89,45 @@ from six.moves import reload_module
 # library, we read the version number from the file called VERSION that stays
 # in the module directory.
 import os
+
+def zipopen(path):
+    """Open a path that may include a ZIP file.
+
+>>> zipopen('/home/samwyse/example.jar/Lib/lazy_import/VERSION')
+
+In this case, '/home/samwyse/example.jar' will be opened as a ZIP file,
+and 'Lib/lazy_import/VERSION' will be opened within it.
+"""
+    try:
+        return open(path, 'r')
+    except IOError:
+        pass
+    from os.path import isdir, isfile, join, split
+    from zipfile import ZipFile  # only if we need it
+    head, tail = split(path)
+    while head:
+        if isfile(head):
+            with ZipFile(head, 'r') as zf:
+                import posixpath
+                tail = posixpath.sep.join(tail.split(os.path.sep))
+                return zf.open(tail, 'r')
+        head, tmp = split(head)
+        tail = join(tmp, tail)
+    from errno import ENOENT  # only if we need it
+    raise IOError(ENOENT, 'No such file or directory', path)
+
 VERSION_FILE = os.path.join(os.path.dirname(__file__), 'VERSION')
-with open(VERSION_FILE) as infile:
+with zipopen(VERSION_FILE) as infile:
     __version__ = infile.read().strip()
 
 # Logging
 import logging
-# adding a TRACE level for stack debugging
-_LAZY_TRACE = 1
-logging.addLevelName(1, "LAZY_TRACE")
-logging.basicConfig(level=logging.WARNING)
-# Logs a formatted stack (takes no message or args/kwargs)
-def _lazy_trace(self):
-    if self.isEnabledFor(_LAZY_TRACE):
-        import traceback
-        self._log(_LAZY_TRACE, " ### STACK TRACE ###", ())
-        for line in traceback.format_stack(sys._getframe(2)):
-            for subline in line.split("\n"):
-                self._log(_LAZY_TRACE, subline.rstrip(), ())
-logging.Logger.lazy_trace = _lazy_trace
+_DEBUG = False
+if _DEBUG:
+    import traceback
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 ################################
@@ -130,7 +150,7 @@ class LazyModule(ModuleType):
         logger.debug("Getting attr {} of LazyModule instance of {}"
                      .format(attr, super(LazyModule, self)
                              .__getattribute__("__name__")))
-        logger.lazy_trace()
+        #traceback.print_stack()
         # IPython tries to be too clever and constantly inspects, asking for
         #  modules' attrs, which causes premature module loading and unesthetic
         #  internal errors if the lazily-loaded module doesn't exist.
@@ -138,9 +158,6 @@ class LazyModule(ModuleType):
             and (attr.startswith(("__", "_ipython"))
                  or attr == "_repr_mimebundle_")
             and module_basename(_caller_name()) in ('inspect', 'IPython')):
-                logger.debug("Ignoring request for {}, deemed from IPython's "
-                             "inspection.".format(super(LazyModule, self)
-                                     .__getattribute__("__name__"), attr))
                 raise AttributeError
         if not attr in ('__name__','__class__','__spec__'):
             # __name__ and __class__ yield their values from the LazyModule;
@@ -156,17 +173,14 @@ class LazyModule(ModuleType):
                 pass
             # Check if it's one of the lazy callables
             try:
-                _callable = type(self)._lazy_import_callables[attr]
-                logger.debug("Returning lazy-callable '{}'.".format(attr))
-                return _callable
+                return type(self)._lazy_import_callables[attr]
             except (AttributeError, KeyError) as err:
                 logger.debug("Proceeding to load module {}, "
                              "from requested value {}"
                              .format(super(LazyModule, self)
                                      .__getattribute__("__name__"), attr))
+                #traceback.print_stack()
                 _load_module(self)
-        logger.debug("Returning value '{}'.".format(super(LazyModule, self)
-                                     .__getattribute__(attr)))
         return super(LazyModule, self).__getattribute__(attr)
 
     def __setattr__(self, attr, value):
@@ -181,23 +195,10 @@ class LazyCallable(object):
     """Class for lazily-loaded callables that triggers module loading on access
 
     """
-    def __init__(self, *args):
-        if len(args) != 2:
-            # Maybe the user tried to base a class off this lazy callable?
-            try:
-                logger.debug("Got wrong number of args when init'ing "
-                             "LazyCallable. args is '{}'".format(args))
-                base = args[1][0]
-                if isinstance(base, LazyCallable) and len(args) == 3:
-                    raise NotImplementedError("It seems you are trying to use "
-                                              "a lazy callable as a class "
-                                              "base. This is not supported.")
-            except (IndexError, TypeError):
-                raise_from(TypeError("LazyCallable takes exactly 2 arguments: "
-                                "a module/lazy module object and the name of "
-                                "a callable to be lazily loaded."), None)
-        self.module, self.cname = args
+    def __init__(self, module, cname):
+        self.module = module
         self.modclass = type(self.module)
+        self.cname = cname
         self.callable = None
         # Need to save these, since the module-loading gets rid of them
         self.error_msgs = self.modclass._lazy_import_error_msgs
@@ -549,7 +550,7 @@ def _load_module(module):
         except (AttributeError, ImportError) as err:
             logger.debug("Failed to load {}.\n{}: {}"
                          .format(modname, err.__class__.__name__, err))
-            logger.lazy_trace()
+            #traceback.print_stack()
             # Under Python 3 reloading our dummy LazyModule instances causes an
             # AttributeError if the module can't be found. Would be preferrable
             # if we could always rely on an ImportError. As it is we vet the
@@ -691,7 +692,6 @@ def _reset_lazy_submod_refs(module):
             continue
         for name, submod in resetnames.items(): 
             super(LazyModule, module).__setattr__(name, submod)
-
 
 def run_from_ipython():
     # Taken from https://stackoverflow.com/questions/5376837
