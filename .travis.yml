@@ -9,6 +9,7 @@ install:
   - pip install -U pip
   - pip install -U setuptools
   - pip install -U .[test]
+  - pip install "pytest>=4.4.0"
 
 # command to run tests
 script:
