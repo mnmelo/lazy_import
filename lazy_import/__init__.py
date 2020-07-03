@@ -98,7 +98,6 @@ import logging
 # adding a TRACE level for stack debugging
 _LAZY_TRACE = 1
 logging.addLevelName(1, "LAZY_TRACE")
-logging.basicConfig(level=logging.WARNING)
 # Logs a formatted stack (takes no message or args/kwargs)
 def _lazy_trace(self):
     if self.isEnabledFor(_LAZY_TRACE):
@@ -109,6 +108,7 @@ def _lazy_trace(self):
                 self._log(_LAZY_TRACE, subline.rstrip(), ())
 logging.Logger.lazy_trace = _lazy_trace
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 ################################
 # Module/function registration #
